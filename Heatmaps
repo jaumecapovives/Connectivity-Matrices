@@ -1,0 +1,53 @@
+import pandas as pd
+import tensorflow as tf
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from script_1 import X, y
+
+# Load data
+model = tf.keras.models.load_model('...model_1.keras')
+predictions = model.predict(X)
+matrices = y
+num_matrices = matrices.shape[0]
+
+print(predictions.shape)
+print(matrices.shape)
+
+# Calculate absolute errors for each element
+
+print("Calculating errors...")
+errors = np.abs(predictions - matrices)
+avg_error = np.mean(errors, axis=0)
+
+output_folder = "...Heatmaps_1"
+
+print("Generating Heatmaps...")
+# Generate and save heatmaps
+for idx in range(errors.shape[0]):
+    
+    # Extract the error matrix for the current random pair
+    error_matrix = errors[idx]
+
+    # Plot the heatmap
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(error_matrix, cmap="coolwarm", annot=False, cbar=True)
+    plt.title(f"Prediction Error Heatmap (Pair {idx + 1})")
+    plt.xlabel("Region")
+    plt.ylabel("Region")
+
+    # Save the heatmap to the specified folder
+    heatmap_path = os.path.join(output_folder, f"heatmap_pair_{idx + 1}.png")
+    plt.savefig(heatmap_path)
+    plt.close()
+
+plt.figure(figsize=(10, 8))
+sns.heatmap(avg_error, cmap="coolwarm", annot=False, cbar=True)
+plt.title(f"Average Error Heatmap")
+plt.xlabel("Region")
+plt.ylabel("Region")
+heatmap_path = os.path.join(output_folder, f"Average_heatmap.png")
+plt.savefig(heatmap_path)
+
+print(f"All heatmaps have been saved to {output_folder}")
