@@ -1,0 +1,216 @@
+import os
+import numpy as np
+import pandas as pd
+import nibabel as nib
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv3D, MaxPooling3D, Flatten, Dense, Dropout, Reshape, Input
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from scipy.ndimage import zoom
+import csv
+
+# Define the folder with CSV files
+matrices_path = '...Matrices_OSF'
+
+matrices = []
+
+# Load all matrices
+for file_name in os.listdir(matrices_path):
+    if file_name.endswith('.csv'):  # Check if the file is a CSV
+        file_path = os.path.join(matrices_path, file_name)
+        matrix = pd.read_csv(file_path, header=None).values
+        matrices.append(matrix)
+
+# IMAGE PREPROCESSING
+
+def resize_image(img_data, target_shape):
+    try:
+        # Calculate zoom factors for each dimension
+        zoom_factors = [
+            target_dim / current_dim if current_dim > 0 else 1
+            for target_dim, current_dim in zip(target_shape, img_data.shape)
+        ]
+        # Apply zoom to resize
+        resized = zoom(img_data, zoom_factors, order=1)
+        return resized
+    
+    except Exception as e:
+        print(f"Error resizing image: {e}")
+        return np.zeros(target_shape)
+
+def img_preprocess(images, target_shape):
+    preprocessed_images = []
+    
+    for img in images:
+        try:
+            # Check input data
+            img_data = img.get_fdata()
+
+            # Resize the image excluding the channel dimension
+            resized_img = resize_image(img_data, target_shape[:-1])
+            
+            preprocessed_images.append(resized_img)
+        except Exception as e:
+            print(f"Error preprocessing image: {e}")
+    
+    return preprocessed_images
+
+images_path = '...Images_OSF'
+
+loaded_images = []
+
+# Iterate through all images in the directory
+for filename in os.listdir(images_path):
+    if filename.endswith(".nii") or filename.endswith(".nii.gz"):
+        file_path = os.path.join(images_path, filename)
+        try:
+            # Load the images file using nibabel
+            img = nib.load(file_path)
+            loaded_images.append(img)
+        except nib.filebasedimages.ImageFileError as e:
+            print(f"Could not load {filename}: {e}")
+
+
+# Prepare data
+image_shape = (128, 128, 128, 1)
+num_regions = 90
+X = np.array(img_preprocess(loaded_images, image_shape))
+y = np.array(matrices)
+y = y.reshape(-1, num_regions, num_regions)
+
+# Ensure that X and y have matching lengths
+print(f"Number of images: {len(X)}")
+print(f"Number of matrices: {len(y)}")
+
+# Split the data into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.25, random_state=1996)
+
+# CREATE NEURAL NETWORK
+
+def create_conn_nn(input_shape, num_regions):
+    model = Sequential([
+        Input(shape=image_shape),
+        Conv3D(16, (3, 3, 3), activation='relu'),
+        MaxPooling3D(pool_size=(2, 2, 2)),
+        Conv3D(32, (3, 3, 3), activation='relu'),
+        MaxPooling3D(pool_size=(2, 2, 2)),
+
+        Flatten(),
+        Dense(256, activation='relu'),
+        Dropout(0.3),
+
+        Dense(128, activation='relu'),
+        Dropout(0.3),
+
+        Dense(num_regions * num_regions, activation='linear'),
+        Reshape((90, 90))  # 90x90 output matrix shape
+    ])
+
+    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    return model
+
+# Define paths for saving the model
+model_save_path = "...model_1.keras"
+history_save_path = "...history_1.csv"
+summary_txt_path = "...model_summary.txt"  # Path for model summary .txt file
+model_save_path_2 = "...model_1_alternative.h5"  # New save path for the model in .h5 format
+
+# Check if the model exists
+if os.path.exists(model_save_path):
+    model = tf.keras.models.load_model(model_save_path)
+
+else:
+    # Create and train the model
+    print("Creating the model")
+    model = create_conn_nn(image_shape, num_regions)
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=10,           
+        restore_best_weights=True,
+        verbose=1 
+    )
+
+    try:
+        history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=16, callbacks=[early_stopping])
+        model.save(model_save_path)  # Save the model in the original location
+
+        # Save the model in the alternative location (new file)
+        model.save(model_save_path_2)  # Save to the new .h5 file
+
+        print(f"Model saved to {model_save_path_2}")  # Print confirmation message
+
+        # Save training history as CSV
+        with open(history_save_path, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["epoch", "loss", "val_loss", "mae", "val_mae"])  # File header
+            
+            # Write each epoch's metrics
+            for epoch, (loss, val_loss, mae, val_mae) in enumerate(
+                    zip(history.history['loss'], 
+                        history.history['val_loss'], 
+                        history.history['mae'], 
+                        history.history['val_mae'])):
+                writer.writerow([epoch + 1, loss, val_loss, mae, val_mae])
+    except Exception as e:
+        print(f"Error training the model: {e}")
+
+# Function to capture and save the model summary to a .txt file
+def save_model_summary_to_txt(model, file_path):
+    summary_list = []
+    
+    # Capture the summary output by redirecting the print to our list
+    model.summary(print_fn=lambda x: summary_list.append(x))
+    
+    # Write the summary to the text file
+    with open(file_path, 'w') as f:
+        for line in summary_list:
+            f.write(line + '\n')
+    
+    print(f"Model summary saved to {file_path}")
+
+# Save the model summary to a .txt file
+save_model_summary_to_txt(model, summary_txt_path)
+
+# Training evaluation
+if __name__ == "__main__":
+    model.summary()
+    history_df = pd.read_csv(history_save_path)  # Load the file with history data
+    def evaluate_training(history):
+
+        # Extract metrics
+        loss = history['loss'].tolist()
+        val_loss = history['val_loss'].tolist()
+        mae = history['mae'].tolist()
+        val_mae = history['val_mae'].tolist()
+        epochs = range(1, len(loss) + 1)
+
+        # Create the plots
+        plt.figure(figsize=(12, 5))
+        # Loss plot
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs[5:], loss[5:], label='Training Loss', color='blue', marker='o', markersize=2)
+        plt.plot(epochs[5:], val_loss[5:], label='Validation Loss', color='orange', marker='o', markersize=2)
+        plt.title('Training and Validation Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.legend()
+
+        # MAE plot
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs[5:], mae[5:], label='Training MAE', color='green', marker='o', markersize=2)
+        plt.plot(epochs[5:], val_mae[5:], label='Validation MAE', color='red', marker='o', markersize=2)
+        plt.title('Training and Validation MAE')
+        plt.xlabel('Epochs')
+        plt.ylabel('Mean Absolute Error')
+        plt.legend()
+
+        # Show and save the plot
+        plt.tight_layout()
+        output_file = "...training_plot_1.png"
+        plt.savefig(output_file, format='png', dpi=300)
+        plt.show()
+
+    # Call evaluation
+    evaluate_training(history_df)
