@@ -1,0 +1,124 @@
+import tensorflow as tf
+import numpy as np
+import networkx as nx
+from script_1 import X, y
+
+# Load the model from the .keras file
+model = tf.keras.models.load_model('...model_1.keras')
+matrices = y
+num_matrices = len(matrices)
+predictions = model.predict(X)
+
+if __name__ == "__main__":
+    def calculate_node_metrics(matrix):
+        G = nx.from_numpy_array(matrix)
+        shortest_paths = {}
+
+        for node in G.nodes():
+            # Calculate shortest paths from the current node to all others
+            shortest_paths[node] = dict(nx.single_source_shortest_path_length(G, source=node))
+
+        metrics = {
+            'clustering': nx.clustering(G),
+            'local_efficiency': nx.local_efficiency(G),
+            'path_length': {node: np.mean(list(values.values())) for node, values in shortest_paths.items()}
+        }
+
+        return metrics
+
+    def calculate_node_differences(real_metrics, predicted_metrics):
+        differences = {}
+        for metric in real_metrics:
+            if isinstance(real_metrics[metric], dict):
+                # Handle metrics that are dictionaries (e.g., 'clustering', 'path_length')
+                differences[metric] = {
+                    node: abs(real_metrics[metric][node] - predicted_metrics[metric].get(node, 0))
+                    for node in real_metrics[metric]
+                }
+            else:
+                # Handle metrics that are single values (e.g., not dictionaries)
+                differences[metric] = abs(real_metrics[metric] - predicted_metrics[metric])
+        return differences
+
+    # Initialize lists to store metrics and differences
+    real_metrics_list = []
+    predicted_metrics_list = []
+    node_differences_list = []
+
+    # Initialize dictionaries to accumulate absolute errors for each metric
+    cumulative_errors = {
+        'local_efficiency': 0,
+        'clustering': 0,
+        'path_length': 0,
+    }
+    metric_counts = {
+        'local_efficiency': 0,
+        'clustering': 0,
+        'path_length': 0,
+    }
+
+    with open("...local_metrics_1.txt", "w") as f:
+        for i in range(num_matrices):
+            print(f"Processing matrix {i+1}/{num_matrices}")
+
+            real_matrix = y[i]
+            predicted_matrix = predictions[i]
+
+            # Calculate node-level metrics
+            try:
+                real_metrics = calculate_node_metrics(real_matrix)
+                predicted_metrics = calculate_node_metrics(predicted_matrix)
+            except Exception as e:
+                print(f"Error calculating metrics for matrix {i+1}: {e}")
+                continue
+
+            # Calculate node-level differences
+            try:
+                node_differences = calculate_node_differences(real_metrics, predicted_metrics)
+                node_differences_list.append(node_differences)
+            except Exception as e:
+                print(f"Error calculating differences for matrix {i+1}: {e}")
+                continue
+
+            # Accumulate absolute errors for each metric
+            for metric, errors in node_differences.items():
+                if isinstance(errors, dict):
+                    cumulative_errors[metric] += sum(errors.values())
+                    metric_counts[metric] += len(errors)
+                else:
+                    cumulative_errors[metric] += errors
+                    metric_counts[metric] += 1
+
+            # Write results to file
+            f.write(f"Metrics for real matrix {i+1}:\n")
+            for metric, values in real_metrics.items():
+                f.write(f"{metric}:\n")
+                if isinstance(values, dict):
+                    for node, value in values.items():
+                        f.write(f"Node {node + 1}: {value:.4f}\n")  # Adjust node index by adding 1
+                else:
+                    f.write(f"Value: {values:.4f}\n")
+                f.write("\n")
+
+            f.write(f"Metrics for predicted matrix {i+1}:\n")
+            for metric, values in predicted_metrics.items():
+                f.write(f"{metric}:\n")
+                if isinstance(values, dict):
+                    for node, value in values.items():
+                        f.write(f"Node {node + 1}: {value:.4f}\n")  # Adjust node index by adding 1
+                else:
+                    f.write(f"Value: {values:.4f}\n")
+                f.write("\n")
+
+        # Calculate average errors
+        average_errors = {
+            metric: cumulative_errors[metric] / metric_counts[metric]
+            for metric in cumulative_errors
+        }
+
+        # Write average errors to file
+        f.write("\nAverage Local Metric Absolute Errors:\n")
+        for metric, avg_error in average_errors.items():
+            f.write(f"{metric.capitalize()}: {avg_error:.4f}\n")
+
+    print("Results saved to local_metrics_1.txt")
