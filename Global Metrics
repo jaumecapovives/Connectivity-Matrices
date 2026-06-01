@@ -1,0 +1,106 @@
+import numpy as np
+import networkx as nx
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import os
+import networkx as nx
+from CM Extraction and Error import X, y
+
+# Load the model from the .keras file
+model = tf.keras.models.load_model('...model_2.keras')
+matrices = y
+num_matrices = len(matrices)
+predictions = model.predict(X)
+
+print(predictions[0])
+print(predictions[1])
+
+def calculate_metrics(matrix):
+
+    G = nx.from_numpy_array(matrix)
+
+    degrees = dict(G.degree())
+    strengths = dict(G.degree(weight='weight')) 
+
+    metrics = {
+        'mean_degree': np.mean(list(degrees.values())),
+        'mean_strength': np.mean(list(strengths.values())),
+        'mean_clustering': nx.average_clustering(G),
+        'mean_betweenness': np.mean(list(nx.betweenness_centrality(G).values()))
+    }
+
+    return metrics
+
+def calculate_difference(real_matrix, predicted_matrix):
+
+    return np.abs(real_matrix - predicted_matrix)
+
+# Initialize lists to store metrics
+real_metrics_list = []
+predicted_metrics_list = []
+difference_list = []
+
+with open("...global_metrics_1.txt", "w") as f:
+    for i in range(len(matrices)):
+        real_matrix = y[i]
+        predicted_matrix = predictions[i]
+
+
+        # Calculate metrics
+        real_metrics = calculate_metrics(real_matrix)
+        predicted_metrics = calculate_metrics(predicted_matrix)
+
+        # Calculate difference
+        difference = calculate_difference(real_matrix, predicted_matrix) 
+        difference_list.append(difference) 
+
+        # Append metrics to lists
+        real_metrics_list.append(real_metrics)
+        predicted_metrics_list.append(predicted_metrics)
+
+        # Write results to file
+        f.write(f"Metrics for real matrix {i+1}:\n")
+        for key, value in real_metrics.items():
+            f.write(f"{key}: {value:.4f}\n") 
+        f.write("\n")
+
+        f.write(f"Metrics for predicted matrix {i+1}:\n")
+        for key, value in predicted_metrics.items():
+            f.write(f"{key}: {value:.4f}\n")
+        f.write("\n")
+
+        f.write(f"Difference between matrices {i+1}:\n")
+        f.write(np.array2string(difference, precision=4, separator=', ')) 
+        f.write("\n\n") 
+
+    # Calculate average metrics
+    real_metrics_avg = {key: np.mean([d[key] for d in real_metrics_list]) for key in real_metrics_list[0]}
+    predicted_metrics_avg = {key: np.mean([d[key] for d in predicted_metrics_list]) for key in predicted_metrics_list[0]}
+
+    # Calculate average difference (element-wise)
+    average_difference = np.mean(np.array(difference_list), axis=0) 
+
+    # Calculate difference between average metrics (using absolute values)
+    metrics_difference = {key: np.abs(predicted_metrics_avg[key] - real_metrics_avg[key]) for key in real_metrics_avg}
+
+    # Write average metrics and difference to file
+    f.write("Average Metrics for Real Matrices:\n")
+    for key, value in real_metrics_avg.items():
+        f.write(f"{key}: {value:.4f}\n")
+    f.write("\n")
+
+    f.write("Average Metrics for Predicted Matrices:\n")
+    for key, value in predicted_metrics_avg.items():
+        f.write(f"{key}: {value:.4f}\n")
+    f.write("\n")
+
+    f.write("Average Difference Matrix:\n")
+    f.write(np.array2string(average_difference, precision=4, separator=', '))
+    f.write("\n\n")
+
+    f.write("Difference between Average Metrics (Absolute Values):\n")
+    for key, value in metrics_difference.items():
+        f.write(f"{key}: {value:.4f}\n")
+
+print("Results saved to global_metrics_1.txt") 
