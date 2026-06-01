@@ -57,7 +57,7 @@ for subject, sessions in images_by_subject.items():
         except Exception as e:
             print(f"Error processing {subject}, session {session}: {e}")
 
-# Calculate MAE and MSE between sessions for each subject
+# Calculate MAE and MSE between sessions, for each subject
 error_results = []
 summary_results = []
 
