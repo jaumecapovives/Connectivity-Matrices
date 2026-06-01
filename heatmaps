@@ -4,7 +4,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CM Extraction and Error import X, y
+from connectivity_matrix_extraction import X, y
 
 # Load data
 model = tf.keras.models.load_model('...model_1.keras')
