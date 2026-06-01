@@ -1,0 +1,26 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from global_metrics import predictions, matrices
+
+# Compute the mean error matrix along the first axis (assuming shape is (n, 90, 90))
+mean_error = np.mean((matrices - predictions), axis=0)  # Mean absolute error
+
+# Define the color scale range for the error heatmap
+vmin = mean_error.min()
+vmax = mean_error.max()
+
+# Plot the error heatmap
+plt.figure(figsize=(10, 8))
+sns.heatmap(mean_error, cmap="coolwarm", annot=False, cbar=True, vmin=vmin, vmax=vmax)
+plt.title("Error Heatmap")
+plt.xlabel("Region")
+plt.ylabel("Region")
+
+# Add ticks every 5 units
+plt.xticks(ticks=np.arange(0, mean_error.shape[1], 5), labels=np.arange(0, mean_error.shape[1], 5))
+plt.yticks(ticks=np.arange(0, mean_error.shape[0], 5), labels=np.arange(0, mean_error.shape[0], 5))
+
+# Show the heatmap
+plt.tight_layout()
+plt.show()
