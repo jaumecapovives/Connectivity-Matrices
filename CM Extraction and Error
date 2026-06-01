@@ -1,0 +1,132 @@
+import os
+import nibabel as nib
+import numpy as np
+from scipy.ndimage import zoom
+from collections import defaultdict
+from tensorflow.keras.models import load_model
+import csv
+
+# Define the image folder and the model path
+image_folder = "...Images_NITRC"
+model_path = "...model_1.keras"
+model = load_model(model_path)
+
+# Create a dictionary to organize images by subject and session
+images_by_subject = defaultdict(dict)
+
+# Function to preprocess the image
+def preprocess_image(image):
+    target_shape = (128, 128, 128)
+    zoom_factors = [t / s for t, s in zip(target_shape, image.shape)]
+    resized_image = zoom(image, zoom_factors, order=3)  # Cubic interpolation
+    normalized_image = (resized_image - np.min(resized_image)) / (np.max(resized_image) - np.min(resized_image))
+    final_image = normalized_image[..., np.newaxis]  # Shape: 128x128x128x1
+    return final_image
+
+# Extract the connectivity matrix
+def extract_connectivity_matrix(image_path):
+    nii_image = nib.load(image_path)
+    image_data = nii_image.get_fdata()
+    preprocessed_image = preprocess_image(image_data)
+    connectivity_matrix = model.predict(np.expand_dims(preprocessed_image, axis=0))[0]
+    return connectivity_matrix
+
+# Load and organize images
+for filename in sorted(os.listdir(image_folder)):
+    if filename.endswith("_deface.nii"):
+        parts = filename.split("_")
+        subject_id = parts[0]  # e.g., "pp01"
+        session_label = parts[2]  # e.g., "A", "B", or "C"
+        full_path = os.path.join(image_folder, filename)
+        try:
+            nii_image = nib.load(full_path)
+            images_by_subject[subject_id][session_label] = nii_image
+        except Exception as e:
+            print(f"Error loading {full_path}: {e}")
+
+# Process images and extract connectivity matrices
+connectivity_matrices = {}
+for subject, sessions in images_by_subject.items():
+    if len(sessions) < 2:
+        print(f"  Warning: Subject {subject} has only {len(sessions)} images.")
+    for session, nii_image in sorted(sessions.items()):
+        try:
+            print(f"Subject: {subject}")
+            print(f"Processing session {session} ")
+            connectivity_matrices[f"{subject}_{session}"] = extract_connectivity_matrix(nii_image.get_filename())
+        except Exception as e:
+            print(f"Error processing {subject}, session {session}: {e}")
+
+# Calculate MAE and MSE between sessions for each subject
+error_results = []
+summary_results = []
+
+for subject, sessions in images_by_subject.items():
+    session_list = sorted(sessions.keys())
+    mae_values = []
+    mse_values = []
+    for i in range(len(session_list) - 1):
+        for j in range(i + 1, len(session_list)):
+            session1 = session_list[i]
+            session2 = session_list[j]
+            key1 = f"{subject}_{session1}"
+            key2 = f"{subject}_{session2}"
+            matrix1 = connectivity_matrices[key1]
+            matrix2 = connectivity_matrices[key2]
+            mae = np.mean(np.abs(matrix1 - matrix2))
+            mse = np.mean((matrix1 - matrix2) ** 2)
+            mae_values.append(mae)
+            mse_values.append(mse)
+            error_results.append([subject, session1, session2, mae, mse])
+    if mae_values and mse_values:
+        mean_mae = np.mean(mae_values)
+        std_mae = np.std(mae_values)
+        mean_mse = np.mean(mse_values)
+        std_mse = np.std(mse_values)
+        summary_results.append([subject, mean_mae, std_mae, mean_mse, std_mse])
+
+# Save pairwise MAE and MSE results to CSV
+error_output_path = "...errors_1.csv"
+with open(error_output_path, mode="w", newline="") as csv_file:
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(["Subject", "Session1", "Session2", "MAE", "MSE"])
+    for row in error_results:
+        formatted_row = [
+            row[0],
+            row[1],
+            row[2],
+            f"{row[3]:.10e}",
+            f"{row[4]:.10e}"
+        ]
+        csv_writer.writerow(formatted_row)
+
+# Calculate overall mean values for summary statistics
+mean_mean_mae = np.mean([row[1] for row in summary_results])
+mean_std_mae = np.mean([row[2] for row in summary_results])
+mean_mean_mse = np.mean([row[3] for row in summary_results])
+mean_std_mse = np.mean([row[4] for row in summary_results])
+
+# Save summary statistics to CSV with overall means
+summary_output_path = "...error_1_summary.csv"
+with open(summary_output_path, mode="w", newline="") as summary_file:
+    summary_writer = csv.writer(summary_file)
+    summary_writer.writerow(["Subject", "MeanMAE", "StdMAE", "MeanMSE", "StdMSE"])
+    for row in summary_results:
+        formatted_row = [
+            row[0],
+            f"{row[1]:.10e}",
+            f"{row[2]:.10e}",
+            f"{row[3]:.10e}",
+            f"{row[4]:.10e}"
+        ]
+        summary_writer.writerow(formatted_row)
+    # Append final mean row
+    summary_writer.writerow([
+        "Overall Mean",
+        f"{mean_mean_mae:.10e}",
+        f"{mean_std_mae:.10e}",
+        f"{mean_mean_mse:.10e}",
+        f"{mean_std_mse:.10e}"
+    ])
+
+print("All values saved to CSV files.")
